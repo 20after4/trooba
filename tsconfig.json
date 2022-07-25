@@ -1,0 +1,35 @@
+{
+    "compilerOptions": {
+      "allowJs": true,
+      "lib": ["es2022"],
+      "module": "commonjs",
+      "moduleResolution": "node",
+      "target": "es2022",
+      "strict": true,
+      "useUnknownInCatchVariables": true,
+      "noImplicitReturns": true,
+      "noFallthroughCasesInSwitch": true,
+      "noUnusedLocals": true,
+      "pretty": true,
+      "noImplicitAny": false,
+      "noImplicitThis": true,
+      "alwaysStrict": true,
+      "strictNullChecks": true,
+      "strictFunctionTypes": true,
+      "strictPropertyInitialization": true,
+      "sourceMap": true,
+      "skipLibCheck": true,
+      "esModuleInterop": true,
+      "declaration": false,
+      "forceConsistentCasingInFileNames": true,
+      "types": [
+          "node",
+      ],
+      "noErrorTruncation": true,
+      "noUnusedParameters": false,
+      "resolveJsonModule": true,
+    },
+    "include": ["index.ts"],
+    "exclude": ["node_modules", "*/<node_internals>/**/*", "test/*"]
+}
+

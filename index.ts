@@ -2,6 +2,13 @@
 
 var TTL = Infinity;
 
+type Context = {
+     [key:string]: any
+
+};
+
+type Callback = (err?, res?) => any;
+
 var defer = function defer(fn) {
     Promise.resolve().then(fn);
 }
@@ -16,11 +23,15 @@ function createPipeConnector(to) {
  * Assigns transport to the client pipeline
 */
 class Trooba {
+    _handlers:any[];
+    _pipe:PipePoint|undefined;
+
     constructor() {
         this._handlers = [];
     }
 
     use(handler, config) {
+        // @ts-ignore window undefined
         if (typeof handler === 'string' && typeof window === 'undefined') {
             handler = require(handler);
         }
@@ -70,7 +81,7 @@ module.exports.use = function createWithHandler(handler, config) {
     return trooba.use(handler, config);
 };
 
-function buildPipe(handlers) {
+function buildPipe(handlers):PipePoint {
     var head;
     var tail = handlers.reduce(function reduce(prev, handlerMeta) {
         var point = createPipePoint(handlerMeta, prev);
@@ -109,19 +120,36 @@ module.exports.onDrop = function onDrop(message) {
     console.log('The message has been dropped, ttl expired:', message.type, message.flow);
 };
 
+type MaybePoint = PipePoint|undefined;
+type Config  = { [key:string]: any };
+type HandlerFunc =  (point:PipePoint, config?:Config) => any;
+type Handler = { handler: HandlerFunc, config:Config, name?:string } | HandlerFunc
+
 class PipePoint {
+    handler?:HandlerFunc;
+    _handlersConfigured:boolean = false;
+    config?:Config;
+    _id:string;
+    _uid:number;
+    _queue:Queue|undefined;
+    store: any;
+    _next$: MaybePoint;
+    _prev$: MaybePoint;
+    _tail$: MaybePoint;
+    context?:Context;
+    _messageHandlers: any;
+    static instanceCounter = 0;
 
-
-    constructor(handler) {
+    constructor(handler?:Handler) {
         this._messageHandlers = {};
-        this.handler = handler;
-        if (handler && typeof handler !== 'function') {
+        if (handler && typeof handler == 'function') {
+            this.handler = handler;
+        } else if (handler) {
             this.handler = handler.handler;
             this.config = handler.config;
         }
         // build a unique identifer for every new instance of point
         // we do not anticipate creates of so many within one pipe to create conflicts
-        PipePoint.instanceCounter = PipePoint.instanceCounter ? PipePoint.instanceCounter : 0;
         this._uid = PipePoint.instanceCounter++;
         this._id = (this.handler ? this.handler.name + '-' : '') + this._uid;
         this.store = {};
@@ -197,15 +225,17 @@ class PipePoint {
     }
 
     set(name, value) {
-        this.context['$'+name] = value;
+        if (this.context)
+            this.context['$'+name] = value;
         return this;
     }
 
     get(name) {
-        return this.context['$'+name];
+        if (this.context)
+            return this.context['$'+name];
     }
 
-    link(pipe) {
+    link(pipe:PipePoint) {
         var self = this;
         if (this._pointCtx().$linked) {
             throw new Error('The pipe already has a link');
@@ -218,7 +248,7 @@ class PipePoint {
                 return pipe.send(message); // will be processed first
             }
             message.stage = Stages.PROCESS;
-            pipe.tail.send(message);
+            return pipe.tail.send(message);
         });
         pipe.on('$link$', function onEnd(message) {
             if (message.flow === Types.RESPONSE) {
@@ -226,12 +256,14 @@ class PipePoint {
                 message.stage = Stages.PROCESS;
                 return self.send(message);
             }
+            return self
         });
         pipe.tail.on('$link$', function onEnd(message) {
             if (message.flow === Types.REQUEST) {
                 // send forward
                 return self.send(message);
             }
+            return self
         });
     }
 
@@ -240,7 +272,8 @@ class PipePoint {
         callback = callback || console.log;
         var route = [{
             point: this,
-            flow: Types.REQUEST
+            flow: Types.REQUEST,
+            stage:undefined,
         }];
         this.once('trace', function (list) {
             self.removeListener('error');
@@ -362,7 +395,9 @@ class PipePoint {
                     }));
                     return true;
                 }
+                return false;
             }
+            return false;
         }
 
         function queueAndIfQueued(message) {
@@ -379,7 +414,7 @@ class PipePoint {
     * to allow them to hook to events they are interested in
     * The context will be attached to every message and bound to pipe
     */
-    create(context, interfaceName) {
+    create(context?, interfaceName?) {
         if (typeof arguments[0] === 'string') {
             interfaceName = arguments[0];
             context = undefined;
@@ -392,7 +427,7 @@ class PipePoint {
             var self = this;
             Object.keys(this.context).forEach(function forEach(name) {
                 if (name.charAt(0) !== '$' && !context[name]) {
-                    context[name] = self.context[name];
+                    context[name] = self.context![name];
                 }
             });
         }
@@ -400,9 +435,9 @@ class PipePoint {
         // bind context to the points
         var head = this.copy(context);
 
-        var current = head;
+        var current:PipePoint|undefined = head;
         while(current) {
-            var ret = current.handler(current, current.config);
+            var ret = current.handler!(current, current.config);
             if (ret && !ret._handlersConfigured) {
                 if (ret instanceof PipePoint) {
                     // if pipe is returned, let's attach it to the existing one
@@ -410,7 +445,7 @@ class PipePoint {
                 }
                 else {
                     current.handler = ret;
-                    current.handler(current, current.config);
+                    current.handler!(current, current.config);
                 }
             }
             current = current._next$ ?
@@ -452,6 +487,9 @@ class PipePoint {
     }
 
     streamRequest(request) {
+        if (!this.context) {
+            throw Error('cannot stream request without context.');
+        }
         this.context.$requestStream = true;
         var point = this.request(request);
         var writeStream = createWriteStream({
@@ -459,13 +497,16 @@ class PipePoint {
             flow: Types.REQUEST,
             session: this.context.$requestSession
         });
-
+        if (!point.context) {
+            throw Error('cannot stream request without context.');
+        }
         this._exposePipeHooks(point, writeStream);
         point.context.$requestStream = writeStream;
         return writeStream;
     }
 
-    request(request, callback) {
+    request(request, callback?:Callback) {
+        if (!this.context) throw Error('cannot request without context.');
         var point = this;
         if (this.context.$requestSession) {
             this.context.$requestSession.closed = true;
@@ -479,7 +520,7 @@ class PipePoint {
                 flow: Types.REQUEST,
                 ref: request
             };
-            // order only streams
+            // @ts-ignore order only streams
             msg.order = !!point.context.$requestStream;
             point.send(msg);
         }
@@ -502,6 +543,9 @@ class PipePoint {
     }
 
     respond(response) {
+        if (!this.context) {
+            throw Error('cannot respond without context.');
+        }
         var point = this;
 
         if (this.context.$responseSession) {
@@ -517,7 +561,7 @@ class PipePoint {
                 flow: Types.RESPONSE,
                 ref: response
             };
-            // order only streams
+            // @ts-ignore order only streams
             msg.order = !!point.context.$responseStream;
             point.send(msg);
         }
@@ -528,6 +572,9 @@ class PipePoint {
     }
 
     streamResponse(response) {
+        if (!this.context) {
+            throw Error('cannot stream response without context.');
+        }
         this.context.$responseStream = true;
         var point = this.respond(response);
 
@@ -567,7 +614,7 @@ class PipePoint {
         delete this.handlers()[type];
     }
 
-    _pointCtx(ctx) {
+    _pointCtx(ctx?:Context) {
         ctx = ctx || this.context;
         if (!ctx) {
             throw new Error('Context is missing, please make sure context() is used first');
@@ -578,7 +625,7 @@ class PipePoint {
         };
     }
 
-    handlers(ctx) {
+    handlers(ctx?:Context) {
         var pointCtx = this._pointCtx(ctx);
         return pointCtx._messageHandlers = pointCtx._messageHandlers || {};
     }
@@ -618,7 +665,7 @@ function createWriteStream(ctx) {
     var type = ctx.flow === Types.REQUEST ? 'request:data' : 'response:data';
     var channel = ctx.channel;
 
-    function _write(data) {
+    function _write(data?) {
         // session can be closed by initiating new request/response
         if (ctx.session.closed) {
             return;
@@ -667,7 +714,8 @@ function shouldIgnore(message) {
 
 
 class Queue {
-    constructor(pipe) {
+    pipe:PipePoint;
+    constructor(pipe:PipePoint) {
         this.pipe = pipe;
     }
     size(context) {
