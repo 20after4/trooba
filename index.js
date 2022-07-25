@@ -15,13 +15,12 @@ function createPipeConnector(to) {
 /**
  * Assigns transport to the client pipeline
 */
-function Trooba() {
-    this._handlers = [];
-}
+class Trooba {
+    constructor() {
+        this._handlers = [];
+    }
 
-Trooba.prototype = {
-
-    use: function (handler, config) {
+    use(handler, config) {
         if (typeof handler === 'string' && typeof window === 'undefined') {
             handler = require(handler);
         }
@@ -37,9 +36,9 @@ Trooba.prototype = {
         // TODO: create test for pipe caching
         this._pipe = undefined;
         return this;
-    },
+    }
 
-    build: function (context) {
+    build(context) {
         var pipe = this._pipe;
         if (!pipe || context) {
             var handlers = this._handlers.slice();
@@ -62,7 +61,7 @@ Trooba.prototype = {
         pipe.context = context;
         return pipe;
     }
-};
+}
 
 module.exports = Trooba;
 
@@ -106,31 +105,29 @@ var Stages = {
 };
 module.exports.Stages = Stages;
 
-/*
-* Channel point forms a linked list node
-*/
-function PipePoint(handler) {
-    this._messageHandlers = {};
-    this.handler = handler;
-    if (handler && typeof handler !== 'function') {
-        this.handler = handler.handler;
-        this.config = handler.config;
-    }
-    // build a unique identifer for every new instance of point
-    // we do not anticipate creates of so many within one pipe to create conflicts
-    PipePoint.instanceCounter = PipePoint.instanceCounter ? PipePoint.instanceCounter : 0;
-    this._uid = PipePoint.instanceCounter++;
-    this._id = (this.handler ? this.handler.name + '-' : '') + this._uid;
-    this.store = {};
-}
-
-module.exports.PipePoint = PipePoint;
 module.exports.onDrop = function onDrop(message) {
     console.log('The message has been dropped, ttl expired:', message.type, message.flow);
 };
 
-PipePoint.prototype = {
-    send: function (message) {
+class PipePoint {
+
+
+    constructor(handler) {
+        this._messageHandlers = {};
+        this.handler = handler;
+        if (handler && typeof handler !== 'function') {
+            this.handler = handler.handler;
+            this.config = handler.config;
+        }
+        // build a unique identifer for every new instance of point
+        // we do not anticipate creates of so many within one pipe to create conflicts
+        PipePoint.instanceCounter = PipePoint.instanceCounter ? PipePoint.instanceCounter : 0;
+        this._uid = PipePoint.instanceCounter++;
+        this._id = (this.handler ? this.handler.name + '-' : '') + this._uid;
+        this.store = {};
+    }
+
+    send(message) {
         if (shouldIgnore(message)) {
             return;
         }
@@ -182,9 +179,9 @@ PipePoint.prototype = {
         }
 
         return this;
-    },
+    }
 
-    copy: function (context) {
+    copy(context) {
         var ret = new PipePoint();
         ret._next$ = this._next$;
         ret._prev$ = this._prev$;
@@ -197,18 +194,18 @@ PipePoint.prototype = {
         ret.context = context;
         ret._pointCtx();
         return ret;
-    },
+    }
 
-    set: function (name, value) {
+    set(name, value) {
         this.context['$'+name] = value;
         return this;
-    },
+    }
 
-    get: function (name) {
+    get(name) {
         return this.context['$'+name];
-    },
+    }
 
-    link: function (pipe) {
+    link(pipe) {
         var self = this;
         if (this._pointCtx().$linked) {
             throw new Error('The pipe already has a link');
@@ -236,9 +233,9 @@ PipePoint.prototype = {
                 return self.send(message);
             }
         });
-    },
+    }
 
-    trace: function (callback) {
+    trace(callback) {
         var self = this;
         callback = callback || console.log;
         var route = [{
@@ -262,14 +259,14 @@ PipePoint.prototype = {
                 });
             }
         });
-    },
+    }
 
-    resume: function resume() {
+    resume() {
         var queue = this.queue();
         queue && queue.resume();
-    },
+    }
 
-    process: function (message) {
+    process(message) {
         var point = this;
 
         // get the hooks
@@ -374,7 +371,7 @@ PipePoint.prototype = {
             // for the given message till the processing is done
             return message.order && point.queue().add(message);
         }
-    },
+    }
 
     /*
     * Create contextual channel
@@ -382,7 +379,7 @@ PipePoint.prototype = {
     * to allow them to hook to events they are interested in
     * The context will be attached to every message and bound to pipe
     */
-    create: function (context, interfaceName) {
+    create(context, interfaceName) {
         if (typeof arguments[0] === 'string') {
             interfaceName = arguments[0];
             context = undefined;
@@ -430,9 +427,9 @@ PipePoint.prototype = {
             throw new Error('Cannot find requested API: ' + interfaceName);
         }
         return api(head);
-    },
+    }
 
-    throw: function (err) {
+    throw(err) {
         var self = this;
         defer(function () {
             self.send({
@@ -441,9 +438,9 @@ PipePoint.prototype = {
                 ref: err
             });
         });
-    },
+    }
 
-    _exposePipeHooks: function exposePipeHooks(point, stream) {
+    _exposePipeHooks(point, stream) {
         stream.on = function onHook(type, handler) {
             point.on(type, handler);
             return stream;
@@ -452,9 +449,9 @@ PipePoint.prototype = {
             point.once(type, handler);
             return stream;
         };
-    },
+    }
 
-    streamRequest: function (request) {
+    streamRequest(request) {
         this.context.$requestStream = true;
         var point = this.request(request);
         var writeStream = createWriteStream({
@@ -466,9 +463,9 @@ PipePoint.prototype = {
         this._exposePipeHooks(point, writeStream);
         point.context.$requestStream = writeStream;
         return writeStream;
-    },
+    }
 
-    request: function (request, callback) {
+    request(request, callback) {
         var point = this;
         if (this.context.$requestSession) {
             this.context.$requestSession.closed = true;
@@ -502,9 +499,9 @@ PipePoint.prototype = {
         defer(sendRequest);
 
         return point;
-    },
+    }
 
-    respond: function (response) {
+    respond(response) {
         var point = this;
 
         if (this.context.$responseSession) {
@@ -528,9 +525,9 @@ PipePoint.prototype = {
         defer(sendResponse);
 
         return this;
-    },
+    }
 
-    streamResponse: function (response) {
+    streamResponse(response) {
         this.context.$responseStream = true;
         var point = this.respond(response);
 
@@ -541,13 +538,13 @@ PipePoint.prototype = {
         });
         this._exposePipeHooks(point, stream);
         return stream;
-    },
+    }
 
     /*
     * Message handlers will be attached to specific context and mapped to a specific point by its _id
     * This is need to avoid re-creating pipe for every new context
     */
-    on: function (type, handler) {
+    on(type, handler) {
         var handlers = this.handlers();
         if (handlers[type]) {
             throw new Error('The hook has already been registered, you can use only one hook for specific event type: ' + type + ', point.id:' + this._id);
@@ -555,22 +552,22 @@ PipePoint.prototype = {
         handlers[type] = handler;
         this._handlersConfigured = true;
         return this;
-    },
+    }
 
-    once: function (type, handler) {
+    once(type, handler) {
         var self = this;
         this.on(type, function onceFn() {
             self.removeListener(type);
             handler.apply(null, arguments);
         });
         return this;
-    },
+    }
 
-    removeListener: function (type) {
+    removeListener(type) {
         delete this.handlers()[type];
-    },
+    }
 
-    _pointCtx: function (ctx) {
+    _pointCtx(ctx) {
         ctx = ctx || this.context;
         if (!ctx) {
             throw new Error('Context is missing, please make sure context() is used first');
@@ -579,51 +576,43 @@ PipePoint.prototype = {
         return ctx.$points[this._id] = ctx.$points[this._id] || {
             ref: this
         };
-    },
+    }
 
-    handlers: function (ctx) {
+    handlers(ctx) {
         var pointCtx = this._pointCtx(ctx);
         return pointCtx._messageHandlers = pointCtx._messageHandlers || {};
-    },
+    }
 
-    queue: function () {
+    queue() {
         return this._queue = this._queue || new Queue(this);
     }
-};
 
+    get next() {
+        if (this.context && this.context.$points && this._next$) {
+            return this.context.$points[this._next$._id].ref;
+        }
+        return this._next$;
+    }
+    get prev() {
+        if (this.context && this.context.$points && this._prev$) {
+            return this.context.$points[this._prev$._id].ref;
+        }
+        return this._prev$;
+    }
+    get tail() {
+        if (this.context && this._tail$) {
+            return this._tail$._pointCtx(this.context).ref;
+        }
+        return this._tail$;
+    }
+}
+module.exports.PipePoint = PipePoint;
 function once(fn) {
     return function once() {
         fn.apply(null, arguments);
         fn = function noop() {};
     };
 }
-
-Object.defineProperty(PipePoint.prototype, 'next', {
-    get: function getNext() {
-        if (this.context && this.context.$points && this._next$) {
-            return this.context.$points[this._next$._id].ref;
-        }
-        return this._next$;
-    }
-});
-
-Object.defineProperty(PipePoint.prototype, 'prev', {
-    get: function getPrev() {
-        if (this.context && this.context.$points && this._prev$) {
-            return this.context.$points[this._prev$._id].ref;
-        }
-        return this._prev$;
-    }
-});
-
-Object.defineProperty(PipePoint.prototype, 'tail', {
-    get: function getTail() {
-        if (this.context && this._tail$) {
-            return this._tail$._pointCtx(this.context).ref;
-        }
-        return this._tail$;
-    }
-});
 
 function createWriteStream(ctx) {
     var type = ctx.flow === Types.REQUEST ? 'request:data' : 'response:data';
@@ -675,28 +664,27 @@ function shouldIgnore(message) {
     return message.session && message.session.closed;
 }
 
-function Queue(pipe) {
-    this.pipe = pipe;
-}
 
-module.exports.Queue = Queue;
 
-Queue.prototype = {
-    size: function (context) {
+class Queue {
+    constructor(pipe) {
+        this.pipe = pipe;
+    }
+    size(context) {
         context = context || this.pipe.context;
         return context ? this.getQueue(context).length : 0;
-    },
+    }
 
-    getQueue: function getQueue(context) {
+    getQueue(context) {
         context = context || this.pipe.context;
         if (context) {
             var pointCtx = this.pipe._pointCtx(context);
             return pointCtx.queue = pointCtx.queue || [];
         }
-    },
+    }
 
     // return true, if message prcessing should be paused
-    add: function add(message) {
+    add(message) {
         if (!message.order || // no keep order needed
                 message.inProcess) {// or already in process
             return false; // should continue
@@ -709,9 +697,9 @@ Queue.prototype = {
         message.inProcess = !moreInQueue;
 
         return moreInQueue;
-    },
+    }
 
-    resume: function resume() {
+    resume() {
         var self = this;
         var point = this.pipe;
         var queue = self.getQueue(point.context);
@@ -723,9 +711,9 @@ Queue.prototype = {
         if (msg && msg.inProcess) {
             self.done(msg);
         }
-    },
+    }
 
-    done: function done(message) {
+    done(message) {
         var point = this.pipe;
         var queue = this.getQueue(message.context);
         var msg = queue.pop();
@@ -745,3 +733,5 @@ Queue.prototype = {
         }
     }
 };
+
+module.exports.Queue = Queue;
